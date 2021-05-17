@@ -13,10 +13,12 @@ using Excel = Microsoft.Office.Interop.Excel;
 
 namespace Highlighter
 {
-    delegate void myDelegate(int i, int max);
+    delegate void myDelegate(Control ctl, object i, object max);
     public partial class Form1 : Form
     {
         int max = 10000;
+        object lockObject = new object();
+        List<int> startRow = new List<int>();
         public Form1()
         {
             InitializeComponent();
@@ -55,8 +57,6 @@ namespace Highlighter
                 MessageBox.Show("엑셀파일을 선택 해 주세요.");
                 return;
             }
-            pb_loading.Maximum = max;
-            pb_loading.Value = 0;
             ThreadStart working = new ThreadStart(doWork);
             Thread working_thread = new Thread(working);
             working_thread.Start();
@@ -87,7 +87,15 @@ namespace Highlighter
             int size = paths.Count;
             for (int i = 0; i < size; i++)
             {
-                updateProgress(i, max);
+                lock (lockObject)
+                {
+                    Thread loading = new Thread(delegate ()
+                    {
+                        updateProgress(this, i, max);
+                    });
+                    loading.Start();
+                }
+
                 int row = 0;
                 int col = 0;
                 int tStart = 0;
@@ -109,8 +117,13 @@ namespace Highlighter
                     row = last.Row;//데이터의 열 길이
                     col = last.Column;//데이터의 행 길이
                     tStart = System.Environment.TickCount;
-                    setDtCols(DTs[i], col, ws1);//dt에 컬럼 추가
-                    setDtRows(DTs[i], row, col, ws1);
+                    DataTable dt = DTs[i];
+                    setDtCols(ref dt, 1, col, ws1);//dt에 컬럼 추가
+                    if(dt.Columns.Count < 2)
+                    {
+                        setDtCols(ref dt, 2, col, ws1);//dt에 컬럼 추가
+                    }
+                    setDtRows(dt, row, col, ws1);
                     tEnd = System.Environment.TickCount;
                     Console.WriteLine("setDtRows 수행시간 : " + (tEnd - tStart));
                 }
@@ -128,6 +141,7 @@ namespace Highlighter
                     GC.Collect();
                 }
             }
+
             //사업자번호, 단말기ID로 검색
             List<string> closedIdx = new List<string>();
             List<string> newOpenIdx = new List<string>();
@@ -135,6 +149,8 @@ namespace Highlighter
             size = dtBeforeMonth.Rows.Count;
             for (int i = 0, value = pb_loading.Value; i < size; i++,value++)
             {
+                updateProgress(this, i, max);
+
                 string bn = dtBeforeMonth.Rows[i]["사업자번호"].ToString();
                 string slct = string.Format("사업자번호='{0}'", bn);
                 
@@ -143,14 +159,15 @@ namespace Highlighter
                 {
                     closedIdx.Add(dtBeforeMonth.Rows[i][0].ToString());
                 }
-                updateProgress(value, max);
             }
-            highlightRow(closedIdx, "yellow", paths[0]);
+            highlightRow(startRow[0], closedIdx, "yellow", paths[0]);
 
             //신규
             size = dtCurrentMonth.Rows.Count;
             for (int i = 0, value=pb_loading.Value; i < size; i++, value++)
             {
+                updateProgress(this, value, max);
+
                 string bn = dtCurrentMonth.Rows[i]["사업자번호"].ToString();
                 string slct = string.Format("사업자번호='{0}'", bn);
                 DataRow[] stillOpen = dtBeforeMonth.Select(slct);
@@ -158,18 +175,19 @@ namespace Highlighter
                 {
                     newOpenIdx.Add(dtCurrentMonth.Rows[i][0].ToString());
                 }
-                updateProgress(value, max);
             }
-            highlightRow(newOpenIdx, "blue", paths[1]);
-            updateProgress(max, max);
+
+            highlightRow(startRow[1], newOpenIdx, "blue", paths[1]);
+            updateProgress(this, max, max);
             DialogResult rst = MessageBox.Show("완료","폐업/신규 가맹점 확인", MessageBoxButtons.OK);
             if (rst == DialogResult.OK)
             {
-                pb_loading.Value = 0;
+                updateProgress(this, 0, max);
+                startRow.Clear();
             }
         }
 
-        void highlightRow(List<string> workingRow, string color, string path)
+        void highlightRow(int start_row, List<string> workingRow, string color, string path)
         {
             Excel.XlRgbColor background = Excel.XlRgbColor.rgbWhite;
             switch (color.ToLower())
@@ -206,11 +224,10 @@ namespace Highlighter
 
                 for (int i = 0; i < size; i++)
                 {
-                    Console.WriteLine("idx : " + workingRow[i]);
                     int rowIdx = int.Parse(workingRow[i]) + 1;
                     Excel.Range selectRow = ws1.get_Range(
-                        (Excel.Range)ws1.Cells[rowIdx, 1],
-                        (Excel.Range)ws1.Cells[rowIdx, col]);
+                        (Excel.Range)ws1.Cells[start_row + rowIdx, 1],
+                        (Excel.Range)ws1.Cells[start_row + rowIdx, col]);
                     selectRow.Interior.Color = background;
                 }
             }
@@ -230,20 +247,23 @@ namespace Highlighter
         }
 
         //컬럼값 가져오기
-        void setDtCols(DataTable dt, int colLen, Excel.Worksheet ws1)
+        void setDtCols(ref DataTable dt, int rowCnt, int colLen, Excel.Worksheet ws1)
         {
-            //dt 컬럼 추가
-            if (dt.Columns.Count < 1)
+            //excel에서 header데이터 가져오기
+            Excel.Range colunm =
+                ws1.get_Range((Excel.Range)ws1.Cells[rowCnt, 1],
+                              (Excel.Range)ws1.Cells[rowCnt, colLen]);
+            var it = ((IEnumerable)colunm.Value).GetEnumerator();
+            while (it.MoveNext())//Excel.Range 범위 순회
             {
-                //excel에서 header데이터 가져오기
-                Excel.Range colunm =
-                    ws1.get_Range((Excel.Range)ws1.Cells[1, 1],
-                                  (Excel.Range)ws1.Cells[1, colLen]);
-                var it = ((IEnumerable)colunm.Value).GetEnumerator();
-                while (it.MoveNext())//Excel.Range 범위 순회
-                {
-                    dt.Columns.Add(it.Current.ToString());
+                if(it.Current == null){
+                    break;
                 }
+                dt.Columns.Add(it.Current.ToString());
+            }
+            if(dt.Columns.Count < 2)
+            {
+                dt.Reset();
             }
         }
 
@@ -253,16 +273,18 @@ namespace Highlighter
             Excel.Range excelRow = ws1.get_Range(
                     (Excel.Range)ws1.Cells[2, 1],
                     (Excel.Range)ws1.Cells[rowLen + 1, colLen]);
+
             object[,] obj = (object[,])excelRow.Value;
             int i = 0, j = 0;
-
             for (i = 1; i < rowLen - 1; i++)
             {
                 List<string> list = new List<string>();
+                if (obj[i, 1].ToString().Trim().Equals("1")){
+                    startRow.Add(i-1);
+                }
                 try
                 {
-                    for (j = 1; j < colLen + 1; j++)
-                    {
+                    for (j = 1; j < colLen + 1; j++){
                         list.Add(obj[i, j].ToString());
                     }
                     dt.Rows.Add(list.ToArray());
@@ -285,18 +307,29 @@ namespace Highlighter
             catch (Exception e)
             {
                 obj = null;
+                Console.WriteLine(e.ToString());
             }
         }
-        
-        void updateProgress(int value, int max)
+
+        void updateProgress(Control ctl, object value, object max)
         {
-            if(pb_loading.Maximum != max)
+            int iValue = int.Parse(value.ToString());
+            int iMax = int.Parse(max.ToString());
+            if (ctl.InvokeRequired)
             {
-                pb_loading.Maximum = max;
+                myDelegate dl = new myDelegate(updateProgress);
+                ctl.Invoke(dl, ctl, value, max);
             }
-            if(pb_loading.Value <= max)
+            else
             {
-                pb_loading.Value = value;
+                if (pb_loading.Maximum != iMax)
+                {
+                    pb_loading.Maximum = iMax;
+                }
+                if (pb_loading.Value <= iMax)
+                {
+                    pb_loading.Value = iValue;
+                }
             }
         }
     }
