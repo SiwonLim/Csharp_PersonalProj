@@ -37,6 +37,7 @@
             this.label3 = new System.Windows.Forms.Label();
             this.button3 = new System.Windows.Forms.Button();
             this.pb_loading = new System.Windows.Forms.ProgressBar();
+            this.cb_isMerge = new System.Windows.Forms.CheckBox();
             this.SuspendLayout();
             // 
             // button1
@@ -79,9 +80,9 @@
             this.label1.Font = new System.Drawing.Font("굴림", 11F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(129)));
             this.label1.Location = new System.Drawing.Point(12, 21);
             this.label1.Name = "label1";
-            this.label1.Size = new System.Drawing.Size(158, 15);
+            this.label1.Size = new System.Drawing.Size(173, 15);
             this.label1.TabIndex = 4;
-            this.label1.Text = "폐업/신규 가맹점 확인";
+            this.label1.Text = "전월/당월 변동사항 확인";
             // 
             // label2
             // 
@@ -113,17 +114,28 @@
             // 
             // pb_loading
             // 
-            this.pb_loading.Location = new System.Drawing.Point(16, 218);
+            this.pb_loading.Location = new System.Drawing.Point(16, 230);
             this.pb_loading.Name = "pb_loading";
             this.pb_loading.Size = new System.Drawing.Size(449, 23);
             this.pb_loading.TabIndex = 9;
+            // 
+            // cb_isMerge
+            // 
+            this.cb_isMerge.AutoSize = true;
+            this.cb_isMerge.Location = new System.Drawing.Point(17, 197);
+            this.cb_isMerge.Name = "cb_isMerge";
+            this.cb_isMerge.Size = new System.Drawing.Size(188, 16);
+            this.cb_isMerge.TabIndex = 10;
+            this.cb_isMerge.Text = "전월엑셀에 당월데이터 합치기";
+            this.cb_isMerge.UseVisualStyleBackColor = true;
             // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(7F, 12F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.AutoScroll = true;
-            this.ClientSize = new System.Drawing.Size(485, 253);
+            this.ClientSize = new System.Drawing.Size(485, 271);
+            this.Controls.Add(this.cb_isMerge);
             this.Controls.Add(this.pb_loading);
             this.Controls.Add(this.button3);
             this.Controls.Add(this.label3);
@@ -134,7 +146,7 @@
             this.Controls.Add(this.button2);
             this.Controls.Add(this.button1);
             this.Name = "Form1";
-            this.Text = "폐업/신규 가맹점 확인 (문의 : 010-2752-1831)";
+            this.Text = "전월/당월 변동사항 확인 (문의 : 010-2752-1831)";
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -151,6 +163,7 @@
         private System.Windows.Forms.Label label3;
         private System.Windows.Forms.Button button3;
         private System.Windows.Forms.ProgressBar pb_loading;
+        private System.Windows.Forms.CheckBox cb_isMerge;
     }
 }
 

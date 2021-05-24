@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Diagnostics;
 using Excel = Microsoft.Office.Interop.Excel;
 
 namespace Highlighter
@@ -17,8 +18,9 @@ namespace Highlighter
     public partial class Form1 : Form
     {
         int max = 10000;
-        object lockObject = new object();
-        List<int> startRow = new List<int>();
+        int startRowData = 1;
+        List<string> paths = new List<string>();
+        List<DataTable> DTs = new List<DataTable>();
         public Form1()
         {
             InitializeComponent();
@@ -32,7 +34,7 @@ namespace Highlighter
         {
             OpenFileDialog dialog = new OpenFileDialog();
             dialog.Filter = "Excel files (*.xls,*xlsx)|*.xls;*xlsx";
-            if(dialog.ShowDialog() == DialogResult.OK)
+            if (dialog.ShowDialog() == DialogResult.OK)
             {
                 txt_before.Text = dialog.FileName;
             }
@@ -53,7 +55,8 @@ namespace Highlighter
         //엑셀 작업 시작!
         private void button3_Click(object sender, EventArgs e)
         {
-            if(txt_before.Text.Equals("") || txt_current.Text.Equals("")){
+            if (txt_before.Text.Equals("") || txt_current.Text.Equals(""))
+            {
                 MessageBox.Show("엑셀파일을 선택 해 주세요.");
                 return;
             }
@@ -70,32 +73,24 @@ namespace Highlighter
 
         void doWork()
         {
+            updateProgress(this, 1, max);
             //엑셀오픈
             Excel.Application xlapp = null;
             Excel.Workbook wb = null;
             Excel.Worksheet ws1 = null;
 
-            List<string> paths = new List<string>();
             paths.Add(txt_before.Text.Trim());
             paths.Add(txt_current.Text.Trim());
+
             DataTable dtBeforeMonth = new DataTable();
             DataTable dtCurrentMonth = new DataTable();
-            List<DataTable> DTs = new List<DataTable>();
             DTs.Add(dtBeforeMonth);
             DTs.Add(dtCurrentMonth);
-            
-            int size = paths.Count;
-            for (int i = 0; i < size; i++)
-            {
-                lock (lockObject)
-                {
-                    Thread loading = new Thread(delegate ()
-                    {
-                        updateProgress(this, i, max);
-                    });
-                    loading.Start();
-                }
 
+            int size = paths.Count;
+            for (int i = 0, value = pb_loading.Value + 1; i < size; i++, value++)
+            {
+                updateProgress(this, value, max);
                 int row = 0;
                 int col = 0;
                 int tStart = 0;
@@ -118,10 +113,11 @@ namespace Highlighter
                     col = last.Column;//데이터의 행 길이
                     tStart = System.Environment.TickCount;
                     DataTable dt = DTs[i];
-                    setDtCols(ref dt, 1, col, ws1);//dt에 컬럼 추가
-                    if(dt.Columns.Count < 2)
+                    setDtCols(ref dt, startRowData, col, ws1);//dt에 컬럼 추가
+                    if (dt.Columns.Count < 2)
                     {
-                        setDtCols(ref dt, 2, col, ws1);//dt에 컬럼 추가
+                        startRowData++;
+                        setDtCols(ref dt, startRowData, col, ws1);//dt에 컬럼 추가
                     }
                     setDtRows(dt, row, col, ws1);
                     tEnd = System.Environment.TickCount;
@@ -143,28 +139,28 @@ namespace Highlighter
             }
 
             //사업자번호, 단말기ID로 검색
-            List<string> closedIdx = new List<string>();
-            List<string> newOpenIdx = new List<string>();
+            List<int> closedIdx = new List<int>();
+            List<int> newOpenIdx = new List<int>();
             //폐업
             size = dtBeforeMonth.Rows.Count;
-            for (int i = 0, value = pb_loading.Value; i < size; i++,value++)
+            for (int i = 0, value = pb_loading.Value; i < size; i++, value++)
             {
                 updateProgress(this, i, max);
-
                 string bn = dtBeforeMonth.Rows[i]["사업자번호"].ToString();
                 string slct = string.Format("사업자번호='{0}'", bn);
-                
+
                 DataRow[] stillOpen = dtCurrentMonth.Select(slct);
                 if (stillOpen.Length < 1)//폐업 또는 사용종료
                 {
-                    closedIdx.Add(dtBeforeMonth.Rows[i][0].ToString());
+                    closedIdx.Add(i);
+                    Console.WriteLine((i) + " / " + dtBeforeMonth.Rows[i][1].ToString() + " / " + dtBeforeMonth.Rows[i][2].ToString());
                 }
             }
-            highlightRow(startRow[0], closedIdx, "yellow", paths[0]);
+            highlightRow(closedIdx, "yellow", paths[0]);
 
             //신규
             size = dtCurrentMonth.Rows.Count;
-            for (int i = 0, value=pb_loading.Value; i < size; i++, value++)
+            for (int i = 0, value = pb_loading.Value; i < size; i++, value++)
             {
                 updateProgress(this, value, max);
 
@@ -173,21 +169,33 @@ namespace Highlighter
                 DataRow[] stillOpen = dtBeforeMonth.Select(slct);
                 if (stillOpen.Length < 1)//폐업 또는 사용종료
                 {
-                    newOpenIdx.Add(dtCurrentMonth.Rows[i][0].ToString());
+                    newOpenIdx.Add(i);
+                    Console.WriteLine((i) + " / " + dtCurrentMonth.Rows[i][1].ToString() + " / " + dtCurrentMonth.Rows[i][2].ToString());
                 }
             }
 
-            highlightRow(startRow[1], newOpenIdx, "blue", paths[1]);
+            highlightRow(newOpenIdx, "blue", paths[1]);
+            if (pb_loading.Value < max / 2)
+            {
+                updateProgress(this, max / 2, max);
+            }
+            if (cb_isMerge.Checked == true)
+            {
+                mergeDT();
+            }
             updateProgress(this, max, max);
-            DialogResult rst = MessageBox.Show("완료","폐업/신규 가맹점 확인", MessageBoxButtons.OK);
+            DialogResult rst = MessageBox.Show("완료", "전월/당월 변동사항 확인", MessageBoxButtons.OK);
             if (rst == DialogResult.OK)
             {
-                updateProgress(this, 0, max);
-                startRow.Clear();
+                this.Invoke(
+                (System.Action)(() => {
+                    this.cb_isMerge.Checked = false;
+                    updateProgress(this, 0, max);
+                }));
             }
         }
 
-        void highlightRow(int start_row, List<string> workingRow, string color, string path)
+        void highlightRow(List<int> workingRow, string color, string path)
         {
             Excel.XlRgbColor background = Excel.XlRgbColor.rgbWhite;
             switch (color.ToLower())
@@ -204,6 +212,7 @@ namespace Highlighter
             Excel.Application xlapp = null;
             Excel.Workbook wb = null;
             Excel.Worksheet ws1 = null;
+
             //1.엑셀열기 및 설정
             xlapp = new Excel.Application();
             xlapp.Visible = false;
@@ -224,10 +233,9 @@ namespace Highlighter
 
                 for (int i = 0; i < size; i++)
                 {
-                    int rowIdx = int.Parse(workingRow[i]) + 1;
                     Excel.Range selectRow = ws1.get_Range(
-                        (Excel.Range)ws1.Cells[start_row + rowIdx, 1],
-                        (Excel.Range)ws1.Cells[start_row + rowIdx, col]);
+                        (Excel.Range)ws1.Cells[startRowData + workingRow[i], 1],
+                        (Excel.Range)ws1.Cells[startRowData + workingRow[i], col]);
                     selectRow.Interior.Color = background;
                 }
             }
@@ -256,12 +264,13 @@ namespace Highlighter
             var it = ((IEnumerable)colunm.Value).GetEnumerator();
             while (it.MoveNext())//Excel.Range 범위 순회
             {
-                if(it.Current == null){
+                if (it.Current == null)
+                {
                     break;
                 }
                 dt.Columns.Add(it.Current.ToString());
             }
-            if(dt.Columns.Count < 2)
+            if (dt.Columns.Count < 2)
             {
                 dt.Reset();
             }
@@ -271,20 +280,18 @@ namespace Highlighter
         void setDtRows(DataTable dt, int rowLen, int colLen, Excel.Worksheet ws1)
         {
             Excel.Range excelRow = ws1.get_Range(
-                    (Excel.Range)ws1.Cells[2, 1],
-                    (Excel.Range)ws1.Cells[rowLen + 1, colLen]);
+                    (Excel.Range)ws1.Cells[startRowData, 1],
+                    (Excel.Range)ws1.Cells[startRowData + rowLen + 1, colLen]);
 
             object[,] obj = (object[,])excelRow.Value;
             int i = 0, j = 0;
-            for (i = 1; i < rowLen - 1; i++)
+            for (i = 1; i <= rowLen; i++)
             {
                 List<string> list = new List<string>();
-                if (obj[i, 1].ToString().Trim().Equals("1")){
-                    startRow.Add(i-1);
-                }
                 try
                 {
-                    for (j = 1; j < colLen + 1; j++){
+                    for (j = 1; j < colLen + 1; j++)
+                    {
                         list.Add(obj[i, j].ToString());
                     }
                     dt.Rows.Add(list.ToArray());
@@ -295,6 +302,60 @@ namespace Highlighter
                 }
             }
 
+        }
+
+        void mergeDT()
+        {
+            int len = 2;
+            Excel.Application[] xlapp = new Excel.Application[len];
+            Excel.Workbook[] wb = new Excel.Workbook[len];
+            Excel.Worksheet[] ws = new Excel.Worksheet[len];
+
+            for (int i = 0; i < len; i++)
+            {
+                //1.엑셀열기 및 설정
+                xlapp[i] = new Excel.Application();
+                xlapp[i].Visible = false;
+                xlapp[i].UserControl = false;
+                xlapp[i].DisplayAlerts = false;
+                xlapp[i].Interactive = true;
+                wb[i] = (Excel.Workbook)xlapp[i].Workbooks.Open(paths[i]);
+                ws[i] = (Excel.Worksheet)wb[i].Sheets[1];
+            }
+
+            try
+            {
+                Excel.Range src = ws[1].UsedRange;
+                src.Copy(Type.Missing);
+                Excel.Range origin =
+                    ws[0].Cells.SpecialCells(Excel.XlCellType.xlCellTypeLastCell, Type.Missing);
+                int startCol = DTs[0].Columns.Count + 2;
+
+                Excel.Range dest = ws[0].get_Range(
+                    (Excel.Range)(ws[0].Cells[1, startCol]),
+                    (Excel.Range)(ws[0].Cells[1 + src.Rows.Count, startCol + src.Columns.Count]));
+                dest.Select();
+                ws[0].Paste(Type.Missing, Type.Missing);
+                wb[0].SaveAs(paths[0], Excel.XlFileFormat.xlOpenXMLWorkbook, null, null, false, false,
+                      Excel.XlSaveAsAccessMode.xlExclusive, false, false,
+                      null, null, null);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
+            finally
+            {
+                for (int i = 0; i < len; i++)
+                {
+                    wb[i].Close(true);
+                    xlapp[i].Quit();
+                    releaseObject(ws[i]);
+                    releaseObject(wb[i]);
+                    releaseObject(xlapp[i]);
+                }
+                GC.Collect();
+            }
         }
 
         void releaseObject(object obj)
@@ -332,5 +393,6 @@ namespace Highlighter
                 }
             }
         }
+
     }
 }
